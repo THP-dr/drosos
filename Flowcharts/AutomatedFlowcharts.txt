@@ -1,0 +1,11 @@
+To objective ειναι να μετατραπει η C++ σε UML γιατι αυτη χρησιμοποιουν εργαλεια για automated documentation 
+
+Version του ChatGpt για C++ σε flowcharts (ρωταμε convert to uml code analytically including function names etc)
+https://chatgpt.com/g/g-geNjzbZNY-c-to-flowchart-converter
+
+Κανουμε paste το κωδικα πανω αριστερα εδω
+https://editor.plantuml.com/uml/SoWkIImgAStDuRBoICt9oLSepo_AIR7ciWh9o2nM0AAKrBJClDGKXVmyhkBKijIYn1m5BQqSe52nbfOrbqDgNWf8Cm00
+
+Δεξι click στο flowchart για save image και αν δεν ειναι ενταξει, copy paste τη uml στην συγκεκριμενη εκδοση του GPT 
+για iterations
+Επειδη ολοκληρο το προγραμμα απευθειας ειναι χαος καλυτερα ενα ενα τα functions απο αυτο το process
