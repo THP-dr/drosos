@@ -447,33 +447,22 @@ Window {
         y: 120
         width: 704
         height: 703
-        color: "black"
         visible: stack.currentItem.objectName === "SchoolCopy"
 
-        AnimatedImage {
-            id: esp32LiveFeed
-            anchors.fill: parent
-            source: "http://esp32s3-data.local/stream"
-            fillMode: Image.PreserveAspectCrop
-            cache: false
-            onStatusChanged: {
-                if (status === AnimatedImage.Error) {
-                    console.log("Stream Error: " + errorString);
-                    reconnectionTimer.start();
-                }
-            }
+        MediaPlayer {
+            id: player
+            source: "http://esp32s3-data.local/stream" // Δοκίμασε την IP αντί για το .local
+            videoOutput: videoSink
+            audioOutput: AudioOutput {} // Απαραίτητο σε κάποιες εκδόσεις για να ξεκινήσει
         }
 
-        Timer {
-            id: reconnectionTimer
-            interval: 3000
-            running: false
-            repeat: true
-            onTriggered: {
-                esp32LiveFeed.source = "";
-                esp32LiveFeed.source = "http://esp32s3-data.local/stream";
-            }
+        VideoOutput {
+            id: videoSink
+            anchors.fill: parent
+            fillMode: VideoOutput.PreserveAspectCrop
         }
+
+        Component.onCompleted: player.play()
 
         Image {
             id: speakerIcon

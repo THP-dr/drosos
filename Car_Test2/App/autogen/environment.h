@@ -8,8 +8,8 @@
 #include <QGuiApplication>
 #include "qqmlextensionplugin.h"
 
-Q_IMPORT_QML_PLUGIN(Car_Test2ContentPlugin)
 Q_IMPORT_QML_PLUGIN(Car_Test2Plugin)
+Q_IMPORT_QML_PLUGIN(Car_Test2ContentPlugin)
 
 const char mainQmlFile[] = "qrc:/qt/qml/Car_Test2Content/App.qml";
 
