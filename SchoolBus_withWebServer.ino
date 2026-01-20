@@ -1,18 +1,16 @@
-#include <Wire.h>               // I2C 
-#include <IRremote.h>           // IR 
-#include <LiquidCrystal_I2C.h>  // LCD 
-#include <WiFi.h>               // Connect ESP32 to WiFi
-#include <ArduinoOTA.h>         // Enable over-the-air updates
-#include <WiFiMulti.h>          // Connect to multiple WiFi networks
-#include <Adafruit_MCP23X17.h>  // MCP23
-#include <TinyGPS++.h>          //GPS
-#include "DFRobot_AXP313A.h"
 #include "esp_camera.h"
+#include "DFRobot_AXP313A.h"  // Include AXP313A library 
 #include <esp32-hal-i2c.h>    // Low-level I2C to override the camera library
+#include <WiFiMulti.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <ArduinoJson.h>
+#include <TinyGPS++.h>
+#include <Wire.h>               // I2C 
+#include <Adafruit_MCP23X17.h>  // MCP23
+#include <LiquidCrystal_I2C.h>  // LCD 
+#include <IRremote.h>           // IR 
 
 // Camera i2c adress 0x36   
 #define CAM_PIN_PWDN    -1
@@ -32,6 +30,10 @@
 #define CAM_PIN_HREF    42
 #define CAM_PIN_PCLK    5
 
+#define GPS_RX_PIN 44 //UART0
+#define GPS_TX_PIN 43
+#define GPS_BAUD 9600
+
 #define PART_BOUNDARY "123456789000000000000987654321" //random string that is unique, it must be different from everything else sent to the server
 static const char* STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
 static const char* STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
@@ -45,12 +47,6 @@ static const char* STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u
 [Part] Content-Type: image/jpeg, Content-Length: 12480
 [RAW DATA OF IMAGE 2]
 */
-// GY-NEO6MV2 settings
-#define GPS_BAUD 9600 
-// UART1 mapping for ESP32-S3 FireBeetle 2
-#define RXD1 44
-#define TXD1 43
-
 
 //IR Receiver
 const byte IR_RECEIVE_PIN = D2;
@@ -58,7 +54,7 @@ const int DEBOUNCE_DELAY = 250;
 //Motor Driver
 const byte DIR1_PIN =  15, DIR2_PIN = D7, PWM1_PIN = D3, PWM2_PIN = D6;
 //Leds
-const byte RED_LED_PIN = 16, WHITE_LED_PIN = 17, ORANGE_LED_PIN1 = 6, ORANGE_LED_PIN2 = 7; //orange mcp
+const byte RED_LED_PIN = 16, WHITE_LED_PIN = 17, ORANGE_LED_PIN1 = 7, ORANGE_LED_PIN2 = 6; //orange mcp
 const unsigned long BLINK_PERIOD = 660;
 //Potentiometer
 const byte POT_PIN = A0;
@@ -80,7 +76,7 @@ const byte trigPin = D11;
 const byte echoPin = D12;
 
 unsigned long now = millis();
-
+unsigned long previousLcdPrintTime = 0;
 int16_t gyroX, gyroY, gyroZ;
 float angleX = 0.0, angleY = 0.0, angleZ = 0.0;
 unsigned long previousTimeGyro = 0;
@@ -90,8 +86,8 @@ float startingAbsoluteAngleZ = 0.0;
 const char* mdnsName = "esp32s3-data";
 bool isStreaming = false;
 
-// Variables to control app notifications
-double latitude = 37.9838; //default Athens
+// Simulated variables 
+double latitude = 37.9838;
 double longitude = 23.7275;
 unsigned long lastUpdate = 0;
 bool smoke = false;
@@ -114,12 +110,10 @@ byte previousRedLedState = 0;
 byte previousWhiteLedState = 0;
 byte previousLeftOrangeLedState = 0, previousRightOrangeLedState = 0;
 
-//Buzzer
-bool shouldBuzzerBuzz = false;
-unsigned long buzzerLastTime = 0;
-bool buzzerState = LOW;
-const unsigned long BUZZER_INTERVAL = 500;
-
+bool manualMode = true; 
+unsigned long previousIRCommandTime = 0;
+byte previousCommand = 0;
+unsigned long lastMcpCheck = 0;
 
 // PID parameters
 float pidKp = 10.0;      // proportionalTerm gain
@@ -137,28 +131,17 @@ float pidPreviousInput = 0.0;      // Previous input value
 unsigned long pidPreviousTime = 0; // Last calculation time
 bool pidFirstRun = true;       // Flag for first calculation
 
-bool manualMode = true;   // ξεκινάει σε manual mode
-
-unsigned long previousIRCommandTime = 0;
-byte previousCommand = 0;
-
-unsigned long previousLcdPrintTime = 0;
-
-float distance;
-
-// Create TinyGPS++ and Serial objects
-TinyGPSPlus gps;
-HardwareSerial gpsSerial(0); // Use UART0 for GPS
-
-DFRobot_AXP313A axp;
-Adafruit_MCP23X17 Mcp;
+WiFiMulti WifiMulti;
+DFRobot_AXP313A Axp;
 WebServer Server(80);
 WiFiClient StreamingClient;
 WebSocketsServer WebSocket = WebSocketsServer(81);
-
+TinyGPSPlus Gps;
+HardwareSerial GpsSerial(0); 
+Adafruit_MCP23X17 Mcp;
 LiquidCrystal_I2C Lcd(LCD_I2C_ADRESS, 16, 2); // Create LCD object
-WiFiMulti wifiMulti;                          // Create WiFiMulti object
 
+// The handler now only "starts" the stream and hands off the client
 void handleStream() {
   StreamingClient = Server.client();
   
@@ -214,272 +197,22 @@ void broadcastData() {
   Serial.println("Broadcasted GPS: " + JsonString);
 }
 
-void forward(byte speed) {
-
-  Mcp.digitalWrite(DIR1_PIN, LOW);
-  digitalWrite(DIR2_PIN, LOW);
-  analogWrite(PWM1_PIN, speed);
-  analogWrite(PWM2_PIN, speed);
-  
-  shouldRedLedsBlink = false;
-  digitalWrite(RED_LED_PIN, LOW);
-  shouldWhiteLedsBlink = false;
-  digitalWrite(WHITE_LED_PIN, LOW);
-  shouldLeftOrangeLedBlink = false;
-  Mcp.digitalWrite(ORANGE_LED_PIN1, LOW);
-  shouldRightOrangeLedBlink = false;
-  Mcp.digitalWrite(ORANGE_LED_PIN2, LOW);
-
-  shouldBuzzerBuzz  = false;
-  Mcp.digitalWrite(BUZZER_PIN, LOW);
- 
-
-
-}
-
-void backward(byte speed) {
-
-  Mcp.digitalWrite(DIR1_PIN, HIGH);
-  digitalWrite(DIR2_PIN, HIGH);
-  analogWrite(PWM1_PIN, speed);
-  analogWrite(PWM2_PIN, speed);
-
-  shouldRedLedsBlink = false;
-  digitalWrite(RED_LED_PIN, LOW);
-  shouldWhiteLedsBlink = true;
-  digitalWrite(WHITE_LED_PIN, HIGH);
-  shouldLeftOrangeLedBlink = false;
-  Mcp.digitalWrite(ORANGE_LED_PIN1, LOW);
-  shouldRightOrangeLedBlink = false;
-  Mcp.digitalWrite(ORANGE_LED_PIN2, LOW);
-
-
-  shouldBuzzerBuzz = true;
-  buzzerLastTime = now;
-  buzzerState = HIGH;
-  Mcp.digitalWrite (BUZZER_PIN, buzzerState);
-
-
-
-}
-
-void turn_left(byte speed) {
-
-  Mcp.digitalWrite(DIR1_PIN, HIGH);
-  digitalWrite(DIR2_PIN, LOW);
-  analogWrite(PWM1_PIN, speed);
-  analogWrite(PWM2_PIN, speed);
-  
-  shouldRedLedsBlink = false;
-  digitalWrite(RED_LED_PIN, LOW);
-  shouldWhiteLedsBlink = false;
-  digitalWrite(WHITE_LED_PIN, LOW);
-  shouldLeftOrangeLedBlink = true;
-  Mcp.digitalWrite(ORANGE_LED_PIN1, HIGH);
-  shouldRightOrangeLedBlink = false;
-  Mcp.digitalWrite(ORANGE_LED_PIN2, LOW);
-
-  shouldBuzzerBuzz = true;
-  buzzerLastTime = now;
-  buzzerState = HIGH;
-  Mcp.digitalWrite (BUZZER_PIN, buzzerState);
-
-
-} 
-
-void turn_right(byte speed) {
-
-  Mcp.digitalWrite(DIR1_PIN, LOW);
-  digitalWrite(DIR2_PIN, HIGH);
-  analogWrite(PWM1_PIN, speed);
-  analogWrite(PWM2_PIN, speed);
-  
-  shouldRedLedsBlink = false;
-  digitalWrite(RED_LED_PIN, LOW);
-  shouldWhiteLedsBlink = false;
-  digitalWrite(WHITE_LED_PIN, LOW);
-  shouldLeftOrangeLedBlink = false;
-  Mcp.digitalWrite(ORANGE_LED_PIN1, LOW);
-  shouldRightOrangeLedBlink = true;
-  Mcp.digitalWrite(ORANGE_LED_PIN2, HIGH);
-
-  shouldBuzzerBuzz = true;
-  buzzerLastTime = now;
-  buzzerState = HIGH;
-  Mcp.digitalWrite (BUZZER_PIN, buzzerState);
-
-}
-
-void stop() {
-
-  analogWrite(PWM1_PIN, 0);
-  analogWrite(PWM2_PIN, 0);
-  
-  shouldRedLedsBlink = true;
-  digitalWrite(RED_LED_PIN, HIGH);
-  shouldWhiteLedsBlink = false;
-  digitalWrite(WHITE_LED_PIN, LOW);
-  shouldLeftOrangeLedBlink = false;
-  Mcp.digitalWrite(ORANGE_LED_PIN1, LOW);
-  shouldRightOrangeLedBlink = false;
-  Mcp.digitalWrite(ORANGE_LED_PIN2, LOW);
-
-  shouldBuzzerBuzz = true;
-  buzzerLastTime = now;
-  buzzerState = HIGH;
-  Mcp.digitalWrite (BUZZER_PIN, buzzerState);
-}
-
-void manual_mode() {
-  manualMode = true;
-  stop(); 
-
-  //keeping it ?????
-  /*shouldRedLedsBlink = false;
-  shouldWhiteLedsBlink = false;
-  shouldLeftOrangeLedBlink = false;
-  shouldRightOrangeLedBlink = false;
-
-  digitalWrite(RED_LED_PIN, LOW);
-  digitalWrite(WHITE_LED_PIN, LOW);
-  Mcp.digitalWrite(ORANGE_LED_PIN1, LOW);
-  Mcp.digitalWrite(ORANGE_LED_PIN2, LOW);*/
-
-  Serial.println("MANUAL MODE");
-}
-
-void automatic_mode() {
-  manualMode = false;
-  stop();
-  shouldRedLedsBlink = false;
-  shouldWhiteLedsBlink = false;
-  shouldLeftOrangeLedBlink = false;
-  shouldRightOrangeLedBlink = false;
-  digitalWrite(RED_LED_PIN, LOW);
-  digitalWrite(WHITE_LED_PIN, LOW);
-  Mcp.digitalWrite(ORANGE_LED_PIN1, LOW);
-  Mcp.digitalWrite(ORANGE_LED_PIN2, LOW);
-
-
-  Mcp.digitalWrite(BUZZER_PIN, LOW);
-  
-
-  startingAbsoluteAngleZ = angleZ;  // Store the current angle as the reference
-  targetAngle = 0.0;  // Reset current heading as reference point
-  resetPID();  // Clear accumulated errors
-  Serial.println("AUTOMATIC MODE");
-
-  shouldBuzzerBuzz = false;
-  Mcp.digitalWrite(BUZZER_PIN ,LOW);
-}
-
-void check_red_leds() {
-  if (now - previousTimeRED >= BLINK_PERIOD && shouldRedLedsBlink) {
-    previousRedLedState = !previousRedLedState;
-    digitalWrite(RED_LED_PIN, previousRedLedState);
-    previousTimeRED = now;
+void displayInfo() {
+  if (Gps.location.isValid()) {
+    Serial.print("Latitude: ");
+    Serial.print(Gps.location.lat(), 6); // 6 decimal places for accuracy
+    Serial.print(" | Longitude: ");
+    Serial.println(Gps.location.lng(), 6);
+    latitude = Gps.location.lat();
+    longitude = Gps.location.lng();
+  } else {
+    if (Gps.charsProcessed() < 10) {
+      Serial.println("GPS Error: No data received. Check wiring/baud rate.");
+    } else {
+      Serial.print("GPS Status: Searching for Satellites... Satellites in view: ");
+      Serial.println(Gps.satellites.value());
+    }
   }
-}
-
-void check_white_leds() {
-  if (now - previousTimeWHITE >= BLINK_PERIOD && shouldWhiteLedsBlink) {
-    previousWhiteLedState = !previousWhiteLedState;
-    digitalWrite(WHITE_LED_PIN, previousWhiteLedState);
-    previousTimeWHITE = now;
-  }
-}
-
-void check_left_orange_led() {
-  if (now - previousTimeLeftORANGE >= BLINK_PERIOD && shouldLeftOrangeLedBlink) {
-    previousLeftOrangeLedState = !previousLeftOrangeLedState;
-    Mcp.digitalWrite(ORANGE_LED_PIN1, previousLeftOrangeLedState);
-    previousTimeLeftORANGE = now;
-  }
-}
-
-void check_right_orange_led() {
-  if (now - previousTimeRightORANGE >= BLINK_PERIOD && shouldRightOrangeLedBlink) {
-    previousRightOrangeLedState = !previousRightOrangeLedState;
-    Mcp.digitalWrite(ORANGE_LED_PIN2, previousRightOrangeLedState);
-    previousTimeRightORANGE = now;
-  }
-}
-
-void check_buzzer() {
-  if (shouldBuzzerBuzz && (now - buzzerLastTime >= BUZZER_INTERVAL)) {
-  buzzerState = !buzzerState;
-  Mcp.digitalWrite (BUZZER_PIN,buzzerState);
-  buzzerLastTime = now;
-  
-  }
-
-}
-
-void gyro_begin() {
-  Wire.beginTransmission(MPU_I2C_ADRESS);
-  Wire.write(0x6B);
-  Wire.write(0);
-  Wire.endTransmission(true);
-}
-
-void read_gyro() {
-  if (now - previousTimeGyro >= GYRO_SAMPLE_RATE) {
-    Wire.beginTransmission(MPU_I2C_ADRESS);
-    Wire.write(GYRO_XOUT_H);
-    Wire.endTransmission(false);
-    Wire.requestFrom(MPU_I2C_ADRESS, 6, true);
-
-    gyroX = Wire.read() << 8 | Wire.read(); 
-    gyroY = Wire.read() << 8 | Wire.read();
-    gyroZ = Wire.read() << 8 | Wire.read();
-
-    gyroX -= gyroBiasX;
-    gyroY -= gyroBiasY;
-    gyroZ -= gyroBiasZ;
-
-    gyroX /= GYRO_SENSITIVITY;
-    gyroY /= GYRO_SENSITIVITY;
-    gyroZ /= GYRO_SENSITIVITY;
-
-    float dt = (now - previousTimeGyro) / 1000.0;
-    angleX += gyroX * dt;
-    angleY += gyroY * dt;
-    angleZ += gyroZ * dt;
-
-    previousTimeGyro = now;
-    delayMicroseconds(100);
-  }
-}
-
-void calibrate_gyro() {
-  long gyroSumX = 0, gyroSumY = 0, gyroSumZ = 0;
-  const int samples = 100;  
-
-  for (int gyroReadings = 0; gyroReadings < samples; gyroReadings++) {
-    Wire.beginTransmission(MPU_I2C_ADRESS);
-    Wire.write(GYRO_XOUT_H);
-    Wire.endTransmission(false);
-    Wire.requestFrom(MPU_I2C_ADRESS, 6, true);
-
-    gyroX = Wire.read() << 8 | Wire.read(); 
-    gyroY = Wire.read() << 8 | Wire.read();
-    gyroZ = Wire.read() << 8 | Wire.read();
-
-    gyroSumX += gyroX;
-    gyroSumY += gyroY;
-    gyroSumZ += gyroZ;
-    delay(GYRO_SAMPLE_RATE); 
-  }
-
-  gyroBiasX = gyroSumX / samples;
-  gyroBiasY = gyroSumY / samples;
-  gyroBiasZ = gyroSumZ / samples;
-}
-
-void lcd_begin() {
-  Lcd.init();
-  Lcd.backlight();
-  Lcd.clear();
 }
 
 void resetPID() {
@@ -539,28 +272,235 @@ void pidCorrection(float targetAngle, float currentAngle, byte baseSpeed) {
   analogWrite(PWM1_PIN, leftMotor);
 }
 
-void triggerSensor() {      
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
+void gyroBegin() {
+  Wire.beginTransmission(MPU_I2C_ADRESS);
+  Wire.write(0x6B);
+  Wire.write(0);
+  Wire.endTransmission(true);
 }
 
+void readGyro() {
+  if (now - previousTimeGyro >= GYRO_SAMPLE_RATE) {
+    Wire.beginTransmission(MPU_I2C_ADRESS);
+    Wire.write(GYRO_XOUT_H);
+    Wire.endTransmission(false);
+    Wire.requestFrom(MPU_I2C_ADRESS, 6, true);
 
+    gyroX = Wire.read() << 8 | Wire.read(); 
+    gyroY = Wire.read() << 8 | Wire.read();
+    gyroZ = Wire.read() << 8 | Wire.read();
 
-float readDistance() {
-  triggerSensor();
-  long duration = pulseIn(echoPin, HIGH, 30000); // 30ms timeout 
-  if (duration == 0) {
-    return -1; // No object detected
-    Serial.println("No pulse");
+    gyroX -= gyroBiasX;
+    gyroY -= gyroBiasY;
+    gyroZ -= gyroBiasZ;
+
+    gyroX /= GYRO_SENSITIVITY;
+    gyroY /= GYRO_SENSITIVITY;
+    gyroZ /= GYRO_SENSITIVITY;
+
+    float dt = (now - previousTimeGyro) / 1000.0;
+    angleX += gyroX * dt;
+    angleY += gyroY * dt;
+    angleZ += gyroZ * dt;
+
+    previousTimeGyro = now;
   }
-  return duration * 0.0343 / 2; // Convert to cm
 }
 
+void calibrateGyro() {
+  long gyroSumX = 0, gyroSumY = 0, gyroSumZ = 0;
+  const int samples = 100;  
 
-void handle_IR_communication() {
+  for (int gyroReadings = 0; gyroReadings < samples; gyroReadings++) {
+    Wire.beginTransmission(MPU_I2C_ADRESS);
+    Wire.write(GYRO_XOUT_H);
+    Wire.endTransmission(false);
+    Wire.requestFrom(MPU_I2C_ADRESS, 6, true);
+
+    gyroX = Wire.read() << 8 | Wire.read(); 
+    gyroY = Wire.read() << 8 | Wire.read();
+    gyroZ = Wire.read() << 8 | Wire.read();
+
+    gyroSumX += gyroX;
+    gyroSumY += gyroY;
+    gyroSumZ += gyroZ;
+    delay(GYRO_SAMPLE_RATE); 
+  }
+
+  gyroBiasX = gyroSumX / samples;
+  gyroBiasY = gyroSumY / samples;
+  gyroBiasZ = gyroSumZ / samples;
+}
+
+void forward(byte speed) {
+
+  Mcp.digitalWrite(DIR1_PIN, LOW);
+  digitalWrite(DIR2_PIN, LOW);
+  analogWrite(PWM1_PIN, speed);
+  analogWrite(PWM2_PIN, speed);
+  
+  shouldRedLedsBlink = false;
+  digitalWrite(RED_LED_PIN, LOW);
+  shouldWhiteLedsBlink = false;
+  digitalWrite(WHITE_LED_PIN, LOW);
+  shouldLeftOrangeLedBlink = false;
+  Mcp.digitalWrite(ORANGE_LED_PIN1, LOW);
+  shouldRightOrangeLedBlink = false;
+  Mcp.digitalWrite(ORANGE_LED_PIN2, LOW);
+
+  //shouldBuzzerBuzz  = false;
+  //Mcp.digitalWrite(BUZZER_PIN, LOW);
+}
+
+void backward(byte speed) {
+
+  Mcp.digitalWrite(DIR1_PIN, HIGH);
+  digitalWrite(DIR2_PIN, HIGH);
+  analogWrite(PWM1_PIN, speed);
+  analogWrite(PWM2_PIN, speed);
+
+  shouldRedLedsBlink = false;
+  digitalWrite(RED_LED_PIN, LOW);
+  shouldWhiteLedsBlink = true;
+  digitalWrite(WHITE_LED_PIN, HIGH);
+  shouldLeftOrangeLedBlink = false;
+  Mcp.digitalWrite(ORANGE_LED_PIN1, LOW);
+  shouldRightOrangeLedBlink = false;
+  Mcp.digitalWrite(ORANGE_LED_PIN2, LOW);
+
+
+  /*shouldBuzzerBuzz = true;
+  buzzerLastTime = now;
+  buzzerState = HIGH;
+  Mcp.digitalWrite (BUZZER_PIN, buzzerState);*/
+}
+
+void turnLeft(byte speed) {
+
+  Mcp.digitalWrite(DIR1_PIN, HIGH);
+  digitalWrite(DIR2_PIN, LOW);
+  analogWrite(PWM1_PIN, speed);
+  analogWrite(PWM2_PIN, speed);
+  
+  shouldRedLedsBlink = false;
+  digitalWrite(RED_LED_PIN, LOW);
+  shouldWhiteLedsBlink = false;
+  digitalWrite(WHITE_LED_PIN, LOW);
+  shouldLeftOrangeLedBlink = true;
+  Mcp.digitalWrite(ORANGE_LED_PIN1, HIGH);
+  shouldRightOrangeLedBlink = false;
+  Mcp.digitalWrite(ORANGE_LED_PIN2, LOW);
+
+  /*shouldBuzzerBuzz = true;
+  buzzerLastTime = now;
+  buzzerState = HIGH;
+  Mcp.digitalWrite (BUZZER_PIN, buzzerState);*/
+} 
+
+void turnRight(byte speed) {
+
+  Mcp.digitalWrite(DIR1_PIN, LOW);
+  digitalWrite(DIR2_PIN, HIGH);
+  analogWrite(PWM1_PIN, speed);
+  analogWrite(PWM2_PIN, speed);
+  
+  shouldRedLedsBlink = false;
+  digitalWrite(RED_LED_PIN, LOW);
+  shouldWhiteLedsBlink = false;
+  digitalWrite(WHITE_LED_PIN, LOW);
+  shouldLeftOrangeLedBlink = false;
+  Mcp.digitalWrite(ORANGE_LED_PIN1, LOW);
+  shouldRightOrangeLedBlink = true;
+  Mcp.digitalWrite(ORANGE_LED_PIN2, HIGH);
+
+  /*shouldBuzzerBuzz = true;
+  buzzerLastTime = now;
+  buzzerState = HIGH;
+  Mcp.digitalWrite (BUZZER_PIN, buzzerState);*/
+}
+
+void stop() {
+
+  analogWrite(PWM1_PIN, 0);
+  analogWrite(PWM2_PIN, 0);
+  
+  shouldRedLedsBlink = true;
+  digitalWrite(RED_LED_PIN, HIGH);
+  shouldWhiteLedsBlink = false;
+  digitalWrite(WHITE_LED_PIN, LOW);
+  shouldLeftOrangeLedBlink = false;
+  Mcp.digitalWrite(ORANGE_LED_PIN1, LOW);
+  shouldRightOrangeLedBlink = false;
+  Mcp.digitalWrite(ORANGE_LED_PIN2, LOW);
+
+  /*shouldBuzzerBuzz = true;
+  buzzerLastTime = now;
+  buzzerState = HIGH;
+  Mcp.digitalWrite (BUZZER_PIN, buzzerState);*/
+}
+
+void manual_mode() {
+  manualMode = true;
+  stop(); 
+  Serial.println("MANUAL MODE");
+}
+
+void automaticMode() {
+  manualMode = false;
+  stop();
+  shouldRedLedsBlink = false;
+  shouldWhiteLedsBlink = false;
+  shouldLeftOrangeLedBlink = false;
+  shouldRightOrangeLedBlink = false;
+  digitalWrite(RED_LED_PIN, LOW);
+  digitalWrite(WHITE_LED_PIN, LOW);
+  Mcp.digitalWrite(ORANGE_LED_PIN1, LOW);
+  Mcp.digitalWrite(ORANGE_LED_PIN2, LOW);
+
+  //Mcp.digitalWrite(BUZZER_PIN, LOW);
+  
+  startingAbsoluteAngleZ = angleZ;  // Store the current angle as the reference
+  targetAngle = 0.0;  // Reset current heading as reference point
+  resetPID();  // Clear accumulated errors
+  Serial.println("AUTOMATIC MODE");
+
+  /*shouldBuzzerBuzz = false;
+  Mcp.digitalWrite(BUZZER_PIN ,LOW);*/
+}
+
+void checkRedLeds() {
+  if (now - previousTimeRED >= BLINK_PERIOD && shouldRedLedsBlink) {
+    previousRedLedState = !previousRedLedState;
+    digitalWrite(RED_LED_PIN, previousRedLedState);
+    previousTimeRED = now;
+  }
+}
+
+void checkWhiteLeds() {
+  if (now - previousTimeWHITE >= BLINK_PERIOD && shouldWhiteLedsBlink) {
+    previousWhiteLedState = !previousWhiteLedState;
+    digitalWrite(WHITE_LED_PIN, previousWhiteLedState);
+    previousTimeWHITE = now;
+  }
+}
+
+void checkLeftOrangeLed() {
+  if (now - previousTimeLeftORANGE >= BLINK_PERIOD && shouldLeftOrangeLedBlink) {
+    previousLeftOrangeLedState = !previousLeftOrangeLedState;
+    Mcp.digitalWrite(ORANGE_LED_PIN1, previousLeftOrangeLedState);
+    previousTimeLeftORANGE = now;
+  }
+}
+
+void checkRightOrangeLed() {
+  if (now - previousTimeRightORANGE >= BLINK_PERIOD && shouldRightOrangeLedBlink) {
+    previousRightOrangeLedState = !previousRightOrangeLedState;
+    Mcp.digitalWrite(ORANGE_LED_PIN2, previousRightOrangeLedState);
+    previousTimeRightORANGE = now;
+  }
+}
+
+void handleIRcommunication() {
   if (IrReceiver.decode()) {
     // Ignore repeated signal
     if (IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT) {
@@ -569,7 +509,7 @@ void handle_IR_communication() {
     }
     // Debounce and ignore rapid presses
     if (now - previousIRCommandTime < DEBOUNCE_DELAY &&
-        IrReceiver.decodedIRData.command == previousCommand) {
+      IrReceiver.decodedIRData.command == previousCommand) {
       IrReceiver.resume();
       return;
     }
@@ -583,25 +523,24 @@ void handle_IR_communication() {
         digitalWrite(DIR2_PIN, HIGH);
         startingAbsoluteAngleZ = angleZ; 
         targetAngle = 0.0; 
-        //resetPID();
+
         }
         break; 
       case 82:  backward(currentSpeed); break;
-      case 8:   if(manualMode) turn_left(currentSpeed); else {
+      case 8:   if(manualMode) turnLeft(currentSpeed); else {
         startingAbsoluteAngleZ = angleZ; 
         targetAngle = 90;  
-        //resetPID();
+
         }
         break;
-      case 90:  if(manualMode) turn_right(currentSpeed); else {
+      case 90:  if(manualMode) turnRight(currentSpeed); else {
         startingAbsoluteAngleZ = angleZ; 
         targetAngle = -90; 
-        //resetPID();
         }
         break;
       case 28:  stop();                    break;
       case 69:  manual_mode();             break;
-      case 71:  automatic_mode();          break;
+      case 71:  automaticMode();          break;
 
       // Half turns
       case 12:  targetAngle = 45;          break;
@@ -637,36 +576,22 @@ void handle_IR_communication() {
   */
 }
 
-void displayInfo() {
-  if (gps.location.isValid()) {
-    Serial.print("Latitude: ");
-    Serial.print(gps.location.lat(), 6);
-    Serial.print(" | Longitude: ");
-    Serial.println(gps.location.lng(), 6);
-  } else {
-    Serial.println("Waiting for satellite fix...");
-  }
-}
-
-// Add multiple networks with their passwords
-void setupWiFiNetworks() {
-  wifiMulti.addAP("COSMOTE-536092-2.4GHz", "vlhelen2003");  // Primary network
-  wifiMulti.addAP("PasadesOnly", "AnythingGoes");  // Fallback network
-  wifiMulti.addAP("realme C33", "ibanezfender");  // Another fallback
-  // Add many networks
-  // wifiMulti.addAP("Another Network", "Another Password");
-}
-
 void setup() {
-  Serial.begin(115200);  
-  //Serial.setDebugOutput(true);
-  delay(1000);           // USB CDC takes a while
+  Serial.begin(115200);
 
+  GpsSerial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
   Wire.begin();
-  // mcp.begin
+  gyroBegin();
+  calibrateGyro();
+  Lcd.init();
+  Lcd.backlight();
+  Lcd.clear();
   if (!Mcp.begin_I2C()) {
     Serial.println(" Mcp Error.");
   }
+
+  IrReceiver.begin(IR_RECEIVE_PIN, DISABLE_LED_FEEDBACK);
+
   Mcp.pinMode(DIR1_PIN, OUTPUT);
   pinMode(DIR2_PIN, OUTPUT);
   pinMode(PWM1_PIN, OUTPUT);
@@ -680,30 +605,27 @@ void setup() {
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
 
-  setupWiFiNetworks();   // Add all networks
+  WifiMulti.addAP("COSMOTE-536092-2.4GHz", "vlhelen2003");
+  WifiMulti.addAP("PasadesOnly", "AnythingGoes");  // Fallback network
+  WifiMulti.addAP("realme C33", "ibanezfender");  // Another fallback
+
   Serial.println("Connecting to WiFi...");
-    // Connect to the best available network
-  while(wifiMulti.run() != WL_CONNECTED) {
+  while (WifiMulti.run() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("");
-  Serial.println("WiFi connected!");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
+  Serial.println("\nWiFi Connected!");
 
   if (MDNS.begin(mdnsName)) {
     Serial.println("mDNS started: " + String(mdnsName) + ".local");
     MDNS.addService("ws", "tcp", 81);
   }
 
-  ArduinoOTA.begin();  // Start OTA updates
-
-  while(axp.begin() != 0){
+  while(Axp.begin() != 0){
     Serial.println("init error");
     delay(1000);
   }
-  axp.enableCameraPower(axp.eOV2640);
+  Axp.enableCameraPower(Axp.eOV2640);
 
   // Configure camera parameters
   camera_config_t Config;
@@ -732,7 +654,7 @@ void setup() {
   Config.jpeg_quality = 12;
   Config.fb_count = 2; // Number of frame buffers
   Config.fb_location = CAMERA_FB_IN_PSRAM; // Use PSRAM 
-  Config.grab_mode = CAMERA_GRAB_WHEN_EMPTY; 
+  Config.grab_mode = CAMERA_GRAB_LATEST; 
 
   // Initialize the camera (AFTER THE OTHER I2C SENSORS!!!)
   esp_err_t err = esp_camera_init(&Config);
@@ -774,104 +696,17 @@ void setup() {
   Server.begin();
 
   WebSocket.begin();
-
-  IrReceiver.begin(IR_RECEIVE_PIN, DISABLE_LED_FEEDBACK);
-  Serial.println("Reset reason: " + String(esp_reset_reason()));
-  gyro_begin();
-  calibrate_gyro();
-  gpsSerial.begin(GPS_BAUD, SERIAL_8N1, RXD1, TXD1);  // Initialize UART0 with thedefined pins
-  lcd_begin();
-
-  Serial.println("Setup complete!");
 }
 
 void loop() {
-  ArduinoOTA.handle();  // Continuously check for OTA updates (maybe remap to a switch/button to save time and battery?)
-  now = millis();  
-  // Check WiFi connection and reconnect if needed
-  if(wifiMulti.run() != WL_CONNECTED) {
-    Serial.println("WiFi disconnected, attempting to reconnect...");
-    //wifiMulti.run() will automatically try to reconnect to the best available network
-  }
-  
-  while (gpsSerial.available() > 0) {
-    if (gps.encode(gpsSerial.read())) {
-      displayInfo();
-    }
-  }
-  // Warning if no data is received at all
-  if (millis() > 5000 && gps.charsProcessed() < 10) {
-    Serial.println("No GPS detected: check wiring.");
-    
-  }
-
-  handle_IR_communication();
-
-  check_red_leds();
-  check_white_leds();
-  check_left_orange_led();
-  check_right_orange_led();
-  check_buzzer();
-  read_gyro();
-
-  
-  int vibrationSensorValue = analogRead(VIBRATION_PIN);
-  int smokeSensorValue = Mcp.digitalRead(SMOKE_PIN);
-  //int smokeSensorValue = analogRead(SMOKE_PIN);
-  distance = readDistance();
-
-  Serial.print(vibrationSensorValue );
-  Serial.print("     ");  
-  Serial.println(smokeSensorValue);
-  Serial.print("     ");  
-
-  bool obstacleDetected = (distance >= 0 && distance <= 10.0); 
-  if (obstacleDetected) {
-    Serial.println("OBSTACLE DETECTED : STOP!");
-    stop();
-    
- 
-  } else {
-    if (distance < 0) {
-      Serial.println("No object detected : GO!");
-
-    
-    } else {
-      Serial.print("Distance: ");
-      Serial.print(distance);
-      Serial.println(" cm");
-      Serial.println("Path clear : GO!");
-     
-    }
-  }
-  
-  if (!manualMode){
-    pidCorrection(targetAngle, angleZ, currentSpeed);
-  }
-
-
-  if (now - previousLcdPrintTime > 100) {
-    delayMicroseconds(500);
-    // Format numbers to a fixed width (e.g., 8 characters with 2 decimal places)
-    char targetAngleStr[9]; // Need space for 8 chars + null terminator
-    char angleZStr[9];
-
-    sprintf(targetAngleStr, "%5.2f", targetAngle); // Right-aligned, 5 chars total, 2 decimal places
-    sprintf(angleZStr, "%5.2f", angleZ);           // Right-aligned, 5 chars total, 2 decimal places
-
-    Lcd.setCursor(0, 0);
-    Lcd.print(targetAngleStr);
-    Lcd.setCursor(0, 1);
-    Lcd.print(angleZStr);
-
-    previousLcdPrintTime = now;
-  }
-  
+  now = millis();
   Server.handleClient(); // Checks for new connection requests
   runStreamService();    // Sends one frame if someone is connected
   
   WebSocket.loop();
     
+  handleIRcommunication();
+
   if (Serial.available() > 0) {
     String command = Serial.readStringUntil('\n');
     command.trim(); 
@@ -934,4 +769,52 @@ void loop() {
     lastUpdate = millis();
     broadcastData();
   }
+
+  if (millis() - lastMcpCheck > 5000) {
+    lastMcpCheck = millis();
+    
+    Wire.beginTransmission(0x20); //MCP address
+    if (Wire.endTransmission() != 0) {
+      Serial.println("MCP Disconnected! Re-initializing...");
+      Mcp.begin_I2C(); 
+     
+      Mcp.pinMode(DIR1_PIN, OUTPUT);
+      Mcp.pinMode(ORANGE_LED_PIN1, OUTPUT);
+      Mcp.pinMode(ORANGE_LED_PIN2, OUTPUT);
+      // Re-apply pinMode settings 
+    }
+  }
+  
+  checkRedLeds();
+  checkWhiteLeds();
+  checkLeftOrangeLed();
+  checkRightOrangeLed();
+
+  // Feed characters from GPS to TinyGPS++
+  while (GpsSerial.available() > 0) {
+    if (Gps.encode(GpsSerial.read())) {
+      displayInfo();
+    }
+  }
+  
+  readGyro();
+  if (!manualMode){
+    pidCorrection(targetAngle, angleZ, currentSpeed);
+  }
+
+  if (now - previousLcdPrintTime > 100) {
+    char targetAngleStr[9]; // Need space for 8 chars + null terminator
+    char angleZStr[9];
+
+    sprintf(targetAngleStr, "%5.2f", targetAngle); 
+    sprintf(angleZStr, "%5.2f", angleZ);           
+
+    Lcd.setCursor(0, 0);
+    Lcd.print(targetAngleStr);
+    Lcd.setCursor(0, 1);
+    Lcd.print(angleZStr);
+
+    previousLcdPrintTime = now;
+  }
+  //delay(1); 
 }
