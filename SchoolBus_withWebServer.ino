@@ -71,6 +71,8 @@ const int VIBRATION_PIN = A4;
 const int SMOKE_PIN = 4; //mcp  
 //Buzzer
 const int BUZZER_PIN = 5; //mcp
+//Fire Sensor
+const byte FLAME_SENSOR_PIN = 3; //mcp
 //Ultrasonic
 const byte trigPin = D11;
 const byte echoPin = D12;
@@ -82,6 +84,10 @@ float angleX = 0.0, angleY = 0.0, angleZ = 0.0;
 unsigned long previousTimeGyro = 0;
 long gyroBiasX = 0, gyroBiasY = 0, gyroBiasZ = 0;
 float startingAbsoluteAngleZ = 0.0;
+
+const byte ACCEL_ZOUT_H = 0x3F;
+float accelZ;
+const float ACCEL_SENSITIVITY = 16384.0;
 
 const char* mdnsName = "esp32s3-data";
 bool isStreaming = false;
@@ -330,6 +336,25 @@ void calibrateGyro() {
   gyroBiasX = gyroSumX / samples;
   gyroBiasY = gyroSumY / samples;
   gyroBiasZ = gyroSumZ / samples;
+}
+
+void readAccelZ() {
+  Wire.beginTransmission(MPU_I2C_ADRESS);
+  Wire.write(ACCEL_ZOUT_H);
+  Wire.endTransmission(false);
+  Wire.requestFrom(MPU_I2C_ADRESS, 2, true); 
+
+  int16_t rawZ = Wire.read() << 8 | Wire.read(); 
+  accelZ = rawZ / ACCEL_SENSITIVITY; // Result in g's
+}
+
+bool isPickedUp() {
+  readAccelZ();
+  // Normal stationary Z is ~1.0g
+  if (accelZ > 1.5 || accelZ < 0.5) { 
+    return true; 
+  }
+  return false;
 }
 
 void forward(byte speed) {
@@ -605,6 +630,10 @@ void setup() {
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
 
+  Mcp.pinMode(FLAME_SENSOR_PIN, INPUT);
+  Mcp.pinMode(SMOKE_PIN, INPUT);
+  Mcp.pinMode(BUZZER_PIN, OUTPUT);
+
   WifiMulti.addAP("COSMOTE-536092-2.4GHz", "vlhelen2003");
   WifiMulti.addAP("PasadesOnly", "AnythingGoes");  // Fallback network
   WifiMulti.addAP("realme C33", "ibanezfender");  // Another fallback
@@ -696,6 +725,14 @@ void setup() {
   Server.begin();
 
   WebSocket.begin();
+
+  Lcd.setCursor(0, 0);
+  Lcd.print("Bus Departed");
+  departure = true;
+
+  //Mcp.digitalWrite(BUZZER_PIN, HIGH);
+  //delay(500);
+  //Mcp.digitalWrite(BUZZER_PIN, LOW);
 }
 
 void loop() {
@@ -720,16 +757,22 @@ void loop() {
       smoke = true;
       Serial.println("Smoke Detected!");
       broadcastData(); 
+      Lcd.setCursor(0, 1);
+      Lcd.print("Smoke!      ");
     } 
     else if (command == "flame") {
       flame = true;
       Serial.println("Fire Detected!");
       broadcastData();
+      Lcd.setCursor(0, 1);
+      Lcd.print("Fire!      ");
     } 
     else if (command == "vibration") {
       vibration = true;
       Serial.println("Vibrations Detected!");
       broadcastData();
+      Lcd.setCursor(0, 1);
+      Lcd.print("Vibrations!");
     } 
     else if (command == "arrival") {
       arrival = true;
@@ -750,6 +793,8 @@ void loop() {
       speedLimit = true; 
       Serial.println("Speed Limit!");
       broadcastData();
+      Lcd.setCursor(0, 1);
+      Lcd.print("Flying!    ");
     } 
     else if (command == "reset") {
       smoke = false;
@@ -781,7 +826,9 @@ void loop() {
       Mcp.pinMode(DIR1_PIN, OUTPUT);
       Mcp.pinMode(ORANGE_LED_PIN1, OUTPUT);
       Mcp.pinMode(ORANGE_LED_PIN2, OUTPUT);
-      // Re-apply pinMode settings 
+      Mcp.pinMode(FLAME_SENSOR_PIN, INPUT);
+      Mcp.pinMode(SMOKE_PIN, INPUT);
+      Mcp.pinMode(BUZZER_PIN, OUTPUT);
     }
   }
   
@@ -802,7 +849,44 @@ void loop() {
     pidCorrection(targetAngle, angleZ, currentSpeed);
   }
 
-  if (now - previousLcdPrintTime > 100) {
+  if (Mcp.digitalRead(FLAME_SENSOR_PIN)) {
+    flame = true;
+    broadcastData();
+    Lcd.setCursor(0, 1);
+    Lcd.print("Fire!      ");
+  } else {
+    flame = false;
+  }
+
+  if (Mcp.digitalRead(SMOKE_PIN)) {
+    smoke = true;
+    broadcastData();
+    Lcd.setCursor(0, 1);
+    Lcd.print("Smoke!      ");
+  } else {
+    smoke = false;
+  }
+
+  if (isPickedUp()) {
+    speedLimit = true;
+    broadcastData();
+    Lcd.setCursor(0, 1);
+    Lcd.print("Flying!    ");
+  } else {
+    speedLimit = false;
+  }
+ 
+  if (analogRead(VIBRATION_PIN) > 200) {
+    vibration = true;
+    broadcastData();
+    Lcd.setCursor(0, 1);
+    Lcd.print("Vibrations!");
+  } else {
+    vibration = false;
+  }
+
+
+  /*if (now - previousLcdPrintTime > 100) {
     char targetAngleStr[9]; // Need space for 8 chars + null terminator
     char angleZStr[9];
 
@@ -815,6 +899,6 @@ void loop() {
     Lcd.print(angleZStr);
 
     previousLcdPrintTime = now;
-  }
+  }*/
   //delay(1); 
 }
