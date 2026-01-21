@@ -1,4 +1,4 @@
-/********** Firebeetle 2 - ESP32-S3 Autonomous Vehicle Control and Monitoring System **********
+/********** Firebeetle 2 - ESP32-S3 Autonomous Vehicle System **********
  * Purpose
  * Implements a smart vehicle platform using an ESP32-S3 microcontroller.
  * The system integrates live camera streaming, GPS tracking, WebSocket
@@ -10,7 +10,7 @@
  * - MPU6050 gyro (I2C @0x68) for heading estimation  
  * - TinyGPS++ via UART0 (pins 43/44)  
  * - MCP23017 I/O expander (I2C @0x20) for DIR1, orange LEDs, buzzer, smoke  
- * - LCD (I2C @0x27), IR receiver (D2), motor drivers (PWM1/2 = D3/D6, DIR2 = D7)  
+ * - LCD (I2C @0x27), IR receiver (D2), motor drivers (D3/D6 PWM, D7 DIR2)
  * - Potentiometer (A0), vibration (A4), ultrasonic (D11/D12)  
  * Software
  * - Uses ESP-IDF / Arduino core libraries
@@ -25,29 +25,29 @@
  **********/
 
 #include "esp_camera.h"
-#include "DFRobot_AXP313A.h"  // Include AXP313A library 
-#include <esp32-hal-i2c.h>    // Low-level I2C to override the camera library
+#include "DFRobot_AXP313A.h"   
+#include <esp32-hal-i2c.h>    
 #include <WiFiMulti.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <ArduinoJson.h>
 #include <TinyGPS++.h>
-#include <Wire.h>               // I2C 
-#include <Adafruit_MCP23X17.h>  // MCP23
-#include <LiquidCrystal_I2C.h>  // LCD 
-#include <IRremote.h>           // IR 
+#include <Wire.h>               
+#include <Adafruit_MCP23X17.h>  
+#include <LiquidCrystal_I2C.h>  
+#include <IRremote.h>           
 
 /* Camera pin configuration (OV2640 on ESP32-S3) */
 #define CAM_PIN_PWDN    -1
 #define CAM_PIN_RESET   -1
 #define CAM_PIN_XCLK    45
-#define CAM_PIN_SIOD    -1  //DISABLE I2C PINS  //1  // Dedicated I2C SDA for camera sensor
+#define CAM_PIN_SIOD    -1   //DISABLE I2C PINS  //1  // Dedicated I2C SDA for camera sensor
 #define CAM_PIN_SIOC    -1                      //2  // Dedicated I2C SCL for camera sensor
 #define CAM_PIN_Y9      48
 #define CAM_PIN_Y8      46
 #define CAM_PIN_Y7      8
-#define CAM_PIN_Y6      7 //PROBLEM CONFLICT WITH MOTOR DRIVER
+#define CAM_PIN_Y6      7   //PROBLEM CONFLICT WITH MOTOR DRIVER
 #define CAM_PIN_Y5      4
 #define CAM_PIN_Y4      41
 #define CAM_PIN_Y3      40
@@ -75,7 +75,8 @@ const int DEBOUNCE_DELAY = 250;
 const byte DIR1_PIN =  15, DIR2_PIN = D7, PWM1_PIN = D3, PWM2_PIN = D6;
 
 /* LED indicator pins */
-const byte RED_LED_PIN = 16, WHITE_LED_PIN = 17, ORANGE_LED_PIN1 = 7, ORANGE_LED_PIN2 = 6; //orange mcp
+const byte RED_LED_PIN = 16, WHITE_LED_PIN = 17;
+const byte ORANGE_LED_PIN1 = 7, ORANGE_LED_PIN2 = 6; 
 const unsigned long BLINK_PERIOD = 660;
 
 /* Analog sensor pins */
@@ -94,9 +95,9 @@ const byte echoPin = D12;
 
 /* Gyro calibration and sampling */
 const int MPU_I2C_ADRESS = 0x68;
-const byte GYRO_SAMPLE_RATE = 10;  // ms between samples
-const byte GYRO_SENSITIVITY = 131; // LSB/deg/s for ±250dps range
-const byte GYRO_XOUT_H = 0x43;   // Starting register for gyro data
+const byte GYRO_SAMPLE_RATE = 10;     // ms between samples
+const byte GYRO_SENSITIVITY = 131;   // LSB/deg/s for ±250dps range
+const byte GYRO_XOUT_H = 0x43;      // Starting register for gyro data
 
 /* Global state variables */
 unsigned long now = millis();
