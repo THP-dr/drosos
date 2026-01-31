@@ -6,6 +6,7 @@
 #include <WiFiMulti.h>
 #include <ESPmDNS.h>
 #include <a0912_inferencing.h> //AI model
+#include "edge-impulse-sdk/tensorflow/lite/c/common.h" //TF lite C API
 
 // Camera i2c adress 0x36   
 #define CAM_PIN_PWDN    -1
@@ -69,6 +70,7 @@ function drawToCanvas(canvasId, byteArray) {
 }
 
 function fetchImagesAndAngle() {
+  // Fetch Image (όπως πριν)
   var xhr1 = new XMLHttpRequest();
   xhr1.open('GET', '/capture', true);
   xhr1.responseType = 'arraybuffer';
@@ -121,13 +123,10 @@ void handle_data() {
   Server.send(200, "application/json", json);
 }
 
-int raw_feature_get_data(size_t offset, size_t length, float *out_ptr) {
-    if (offset + length > bufferLength) {
-        return -1;
-    }
-
+static int raw_feature_get_data(size_t offset, size_t length, float *out_ptr) {
     for (size_t i = 0; i < length; i++) {
-      out_ptr[i] = (float)current_raw_image_copy[offset + i];
+        // Correct math for your INT8 model (zero_point -128)
+        out_ptr[i] = (float)((int16_t)current_raw_image_copy[offset + i] - 128);
     }
     return 0;
 }
@@ -136,45 +135,55 @@ void inference_task(void *pvParameters) {
   while (1) {
     if (xSemaphoreTake(frame_mutex, pdMS_TO_TICKS(500))) {
         signal_t signal;
-        signal.total_length = EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE;
-        signal.get_data = &raw_feature_get_data;
+        signal.total_length = EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE; // Expected: 96*96 = 9216
+        signal.get_data = &raw_feature_get_data; // Applies pixel - 128
         
-        ei_impulse_result_t result;
-
-// Debug 10 pixels 
-Serial.print("Debug Pixels (Raw -> Normalized): ");
-for (int i = 0; i < 10; i++) {
-    float normalized_val;
-    raw_feature_get_data(i, 1, &normalized_val); 
-    Serial.printf("[%u -> %.3f] ", current_raw_image_copy[i], normalized_val);
-}
-Serial.println();
+        ei_impulse_result_t result = {0}; // Initialize result struct
 
         EI_IMPULSE_ERROR res = run_classifier(&signal, &result, false);
 
         if (res == EI_IMPULSE_OK) {
-          Serial.printf("Done (%d ms) :", result.timing.classification);
+          Serial.printf("Inference done (%d ms).\n", result.timing.classification);
+          
           bool found_something = false;
+          // Iterate through all bounding boxes returned by the post-processor
           for (size_t ix = 0; ix < result.bounding_boxes_count; ix++) {
             auto bb = result.bounding_boxes[ix];
-            if (bb.value > 0.2) {
+            // Check if the bounding box is valid and meets the confidence threshold
+            if (bb.value > 0.2f) { 
+              Serial.printf("  DETECTED: %s (Conf: %.3f) [ x: %u, y: %u, w: %u, h: %u ]\n", 
+                                   bb.label, bb.value, bb.x, bb.y, bb.width, bb.height);
               last_x = bb.x;
               last_y = bb.y;
               last_label = String(bb.label);
-              Serial.printf("  %s (%f) [ x: %u, y: %u, width: %u, height: %u ]\n", 
-                                   bb.label, bb.value, bb.x, bb.y, bb.width, bb.height);
+
+              
               found_something = true;
-              break; //only first object
+              // Break after the first detection above the threshold (or remove break to show all)
+              break; 
             }
           }
           if (!found_something) {
-            Serial.println("  No objects detected.");
-            last_x = -1;
+            Serial.println("  No objects detected above threshold.");  
+            last_x = -1; 
+            last_y = -1;
+            last_label = "Searching..."; 
           }
+        } else {
+             // Log errors from the classifier
+             Serial.printf("run_classifier failed with error: %d\n", res);
+             last_x = -1; 
+             last_y = -1;
+             last_label = "Error"; 
         }
+        
         xSemaphoreGive(frame_mutex);
+    } else {
+         // Log if semaphore couldn't be acquired (e.g., inference taking too long)
+         Serial.println("Inference task: Semaphore timeout.");
     }
-    vTaskDelay(pdMS_TO_TICKS(50)); // Inference rate
+    
+    vTaskDelay(pdMS_TO_TICKS(50)); // Control inference rate
   }
 }
 
@@ -229,7 +238,7 @@ void setup() {
   // Apply settings
   sensor_t * s = esp_camera_sensor_get();
   s->set_brightness(s, 0);     // -2 to 2
-  s->set_contrast(s, 2);       // -2 to 2
+  s->set_contrast(s, 0);       // -2 to 2
   s->set_saturation(s, 0);     // -2 to 2
   s->set_special_effect(s, 0); // 0 to 6 (0 - No Effect, 1 - Negative, 2 - Grayscale, 3 - Red Tint, 4 - Green Tint, 5 - Blue Tint, 6 - Sepia)
   s->set_whitebal(s, 0);       // 0 = disable , 1 = enable
@@ -246,7 +255,7 @@ void setup() {
   s->set_wpc(s, 0);            // 0 = disable , 1 = enable
   s->set_raw_gma(s, 0);        // 0 = disable , 1 = enable
   s->set_lenc(s, 0);           // 0 = disable , 1 = enable
-  //s->set_quality(s, 10);
+  s->set_quality(s, 10);
   s->set_hmirror(s, 0);        // 0 = disable , 1 = enable
   s->set_vflip(s, 0);          // 0 = disable , 1 = enable
   s->set_dcw(s, 1);            // 0 = disable , 1 = enable
@@ -274,11 +283,15 @@ void loop() {
 
   camera_fb_t * fb = esp_camera_fb_get();
   if (fb) {
-    if (xSemaphoreTake(frame_mutex, pdMS_TO_TICKS(50))) {
-      memcpy(current_raw_image_copy, fb->buf, fb->len);
-      xSemaphoreGive(frame_mutex);
+    if (fb->len == bufferLength) { // Only copy if it matches 9216
+      if (xSemaphoreTake(frame_mutex, pdMS_TO_TICKS(50))) {
+        memcpy(current_raw_image_copy, fb->buf, fb->len);
+        xSemaphoreGive(frame_mutex);
+      }
+    } else {
+      Serial.printf("Wrong frame size: %zu\n", fb->len);
     }
     esp_camera_fb_return(fb); 
   }
   delay(1);
-} 
+}
