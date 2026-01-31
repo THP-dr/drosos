@@ -125,7 +125,6 @@ void handle_data() {
 
 static int raw_feature_get_data(size_t offset, size_t length, float *out_ptr) {
     for (size_t i = 0; i < length; i++) {
-        // Correct math for your INT8 model (zero_point -128)
         out_ptr[i] = (float)((int16_t)current_raw_image_copy[offset + i] - 128);
     }
     return 0;
@@ -295,3 +294,4 @@ void loop() {
   }
   delay(1);
 }
+
