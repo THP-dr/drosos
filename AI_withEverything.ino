@@ -543,10 +543,10 @@ void ultrasonicTask(void* pvParameters) {
     delayMicroseconds(10);
     digitalWrite(TRIGGER_PIN, LOW);
 
-    long duration = pulseIn(ECHO_PIN, HIGH); 
+    long duration = pulseIn(ECHO_PIN, HIGH, 20000); 
 
     if (duration == 0) {
-      ultrasonicDistance = -1.0; 
+       
     } else {
       ultrasonicDistance = duration * 0.034 / 2;
     }
@@ -956,7 +956,6 @@ void loop() {
     } else {
     
       stop(); 
-      resetPID(); 
     }
   }
 
@@ -992,11 +991,13 @@ void loop() {
     vibration = false;
   }
 
-  if (ultrasonicDistance < 3.82) {
+  if (ultrasonicDistance < 10.0f) {
     shouldBeMoving = false;
-  } else {
+  } else if (ultrasonicDistance < 500.0f) {
     shouldBeMoving = true;
   }
+
+  Serial.println((String)"Ultrasonic:" + ultrasonicDistance);
 
   delay(1);
 }
