@@ -78,6 +78,7 @@ const byte FLAME_SENSOR_PIN = 3; //mcp
 //Ultrasonic
 const byte TRIGGER_PIN = D11;
 const byte ECHO_PIN = D12;
+const int OBSTACLE_THRESHOLD_CM = 3; 
 
 unsigned long now = millis();
 unsigned long previousLcdPrintTime = 0;
@@ -124,6 +125,8 @@ unsigned long previousIRCommandTime = 0;
 byte previousCommand = 0;
 unsigned long lastMcpCheck = 0;
 float ultrasonicDistance = 0.0;
+bool obstacleDetected = false;
+bool wasInAutoMode = false;
 
 // PID parameters
 float pidKp = 10.0;      // proportionalTerm gain
@@ -457,6 +460,72 @@ void checkRightOrangeLed() {
   }
 }
 
+void updateLEDsAutoMode() {
+  int dir1_state = Mcp.digitalRead(DIR1_PIN);
+  int dir2_state = digitalRead(DIR2_PIN);
+  int pwm1_speed = analogRead(PWM1_PIN);
+  int pwm2_speed = analogRead(PWM2_PIN);
+
+  shouldRedLedsBlink = false;
+  digitalWrite(RED_LED_PIN, LOW);
+  shouldWhiteLedsBlink = false;
+  digitalWrite(WHITE_LED_PIN, LOW);
+  shouldLeftOrangeLedBlink = false;
+  Mcp.digitalWrite(ORANGE_LED_PIN1, LOW);
+  shouldRightOrangeLedBlink = false;
+  Mcp.digitalWrite(ORANGE_LED_PIN2, LOW);
+
+  if (pwm1_speed == 0 && pwm2_speed == 0) {
+    shouldRedLedsBlink = true;
+    digitalWrite(RED_LED_PIN, HIGH);
+  } else if (dir1_state == HIGH && dir2_state == HIGH) {
+    shouldWhiteLedsBlink = true;
+    digitalWrite(WHITE_LED_PIN, HIGH);
+  } else if (dir1_state == LOW && dir2_state == LOW) {
+      if (pwm1_speed > pwm2_speed + 30) { 
+      shouldRightOrangeLedBlink = true;
+      Mcp.digitalWrite(ORANGE_LED_PIN2, HIGH);
+    } else if (pwm2_speed > pwm1_speed + 30) { 
+      shouldLeftOrangeLedBlink = true;
+      Mcp.digitalWrite(ORANGE_LED_PIN1, HIGH);
+    }
+    }
+
+  }
+  
+  
+
+  
+  void handleObstacle() {
+  if (ultrasonicDistance <= OBSTACLE_THRESHOLD_CM) {
+    if (!obstacleDetected) {
+      wasInAutoMode = !manualMode;
+      obstacleDetected = true;
+      backward(180); 
+
+    }
+  } else {
+    if (obstacleDetected) {
+      obstacleDetected = false;
+      
+      if (wasInAutoMode) {
+        automaticMode();       
+        Mcp.digitalWrite(DIR1_PIN, LOW);
+        digitalWrite(DIR2_PIN, LOW);
+        analogWrite(PWM1_PIN, currentSpeed);
+        analogWrite(PWM2_PIN, currentSpeed);
+      } else {
+        stop(); 
+        
+      }
+    }
+  }
+}
+
+
+
+
+
 void handleIRcommunication() {
   if (IrReceiver.decode()) {
     // Ignore repeated signal
@@ -787,7 +856,7 @@ void setup() {
   s->set_exposure_ctrl(s, 0);  // 0 = disable , 1 = enable
   s->set_aec2(s, 0);           // 0 = disable , 1 = enable
   s->set_ae_level(s, 0);       // -2 to 2
-  s->set_aec_value(s, 1200);    // 0 to 1200
+  s->set_aec_value(s, 1200);   // 0 to 1200
   s->set_gain_ctrl(s, 0);      // 0 = disable , 1 = enable
   s->set_agc_gain(s, 1);       // 0 to 30
   s->set_gainceiling(s, (gainceiling_t)0);  // 0 to 6
@@ -817,7 +886,7 @@ void setup() {
   FrameMutex = xSemaphoreCreateMutex();
   xTaskCreatePinnedToCore(inferenceTask, "Inference", 16384, NULL, 1, NULL, 1); //task function name, name for debugging, stack size in bytes, inputs, priority, handle
 
-  xTaskCreate(ultrasonicTask,  "Ultrasonic", 2048, NULL, 1, NULL);
+  xTaskCreate(ultrasonicTask, "Ultrasonic", 2048, NULL, 1, NULL);
 
   Lcd.setCursor(0, 0);
   Lcd.print("Bus Departed");
@@ -948,15 +1017,17 @@ void loop() {
   }
   
   readGyro();
+  handleObstacle();
 
   if (!manualMode) { 
-    if (shouldBeMoving) {
-
+    if (shouldBeMoving && !obstacleDetected) {
       pidCorrection(targetAngle, angleZ, currentSpeed);
     } else {
-    
-      stop(); 
+      if (!obstacleDetected) {
+        stop(); 
+      }
     }
+    updateLEDsAutoMode();
   }
 
   if (Mcp.digitalRead(FLAME_SENSOR_PIN)) {
@@ -992,9 +1063,14 @@ void loop() {
   }
 
   if (ultrasonicDistance < 10.0f) {
-    shouldBeMoving = false;
+    if (!obstacleDetected){
+      shouldBeMoving = false;
+    }    
   } else if (ultrasonicDistance < 500.0f) {
-    shouldBeMoving = true;
+    if (!obstacleDetected) {
+      shouldBeMoving = true;
+    }
+    
   }
 
   Serial.println((String)"Ultrasonic:" + ultrasonicDistance);
