@@ -79,6 +79,9 @@ const byte FLAME_SENSOR_PIN = 3; //mcp
 const byte TRIGGER_PIN = D11;
 const byte ECHO_PIN = D12;
 const int OBSTACLE_THRESHOLD_CM = 3; 
+/* IR line sensor pins */
+const byte IR_Right = 2; //mcp
+const byte IR_Left = 1; //mcp
 
 unsigned long now = millis();
 unsigned long previousLcdPrintTime = 0;
@@ -88,7 +91,7 @@ unsigned long previousTimeGyro = 0;
 long gyroBiasX = 0, gyroBiasY = 0, gyroBiasZ = 0;
 float startingAbsoluteAngleZ = 0.0;
 bool shouldBeMoving = false; 
-
+unsigned long pidLinePreviousTime = 0;
 
 const byte ACCEL_ZOUT_H = 0x3F;
 float accelZ;
@@ -757,11 +760,10 @@ void inferenceTask(void *pvParameters) {
         
         xSemaphoreGive(FrameMutex);
     } else {
-        // Log if semaphore couldn't be acquired (e.g., inference taking too long)
         Serial.println("Inference task: Semaphore timeout.");
     }
     
-    vTaskDelay(pdMS_TO_TICKS(50)); // Control inference rate
+    vTaskDelay(pdMS_TO_TICKS(50)); 
   }
 
 }
@@ -796,6 +798,8 @@ void setup() {
   pinMode(TRIGGER_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
 
+  Mcp.pinMode(IR_Right, INPUT);
+  Mcp.pinMode(IR_Left, INPUT);
   Mcp.pinMode(FLAME_SENSOR_PIN, INPUT);
   Mcp.pinMode(SMOKE_PIN, INPUT);
   Mcp.pinMode(BUZZER_PIN, OUTPUT);
@@ -806,7 +810,6 @@ void setup() {
   }
   Axp.enableCameraPower(Axp.eOV2640);
 
-  // Configure camera parameters
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -903,13 +906,13 @@ void loop() {
 
   camera_fb_t * fb = esp_camera_fb_get();
   if (fb) {
-    if (fb->len == bufferLength) { // Only copy if it matches 9216
+    if (fb->len == bufferLength) { 
       if (xSemaphoreTake(FrameMutex, pdMS_TO_TICKS(50))) {
         memcpy(currentRawImageCopy, fb->buf, fb->len);
         xSemaphoreGive(FrameMutex);
       }
     } else {
-      // If this prints, your camera is not outputting 96x96!
+      
       Serial.printf("Wrong frame size: %zu\n", fb->len);
     }
     esp_camera_fb_return(fb); 
@@ -987,6 +990,8 @@ void loop() {
       Mcp.pinMode(FLAME_SENSOR_PIN, INPUT);
       Mcp.pinMode(SMOKE_PIN, INPUT);
       Mcp.pinMode(BUZZER_PIN, OUTPUT);
+      Mcp.pinMode(IR_Right, INPUT);
+      Mcp.pinMode(IR_Left, INPUT);
     }
   }
   
@@ -995,7 +1000,6 @@ void loop() {
   checkLeftOrangeLed();
   checkRightOrangeLed();
 
-  // Feed characters from GPS to TinyGPS++
   while (GpsSerial.available() > 0) {
     if (Gps.encode(GpsSerial.read())) {
       if (Gps.location.isValid()) {
@@ -1021,7 +1025,27 @@ void loop() {
 
   if (!manualMode) { 
     if (shouldBeMoving && !obstacleDetected) {
-      pidCorrection(targetAngle, angleZ, currentSpeed);
+      byte rightLineReading = Mcp.digitalRead(IR_Right);
+      byte leftLineReading = Mcp.digitalRead(IR_Left);
+      Serial.println((String)rightLineReading + "    " + leftLineReading);
+      if (rightLineReading == HIGH && leftLineReading == LOW) {
+        targetAngle = 0.0;
+      } else if (rightLineReading == HIGH && leftLineReading == HIGH) {
+        targetAngle += 10.0;
+      } else if (rightLineReading == LOW && leftLineReading == HIGH) {
+        targetAngle += 10.0;
+      } else if (rightLineReading == LOW && leftLineReading == LOW) {
+        targetAngle -= 10.0;
+      }  
+      float dtLine = (now - pidLinePreviousTime) / 1000.0;
+      if (dtLine >= 0.01) { //run every 10ms   
+        float alpha = 0.2; //takes 20% of the new angle and adds it to the 80% of the previous angle to smoothly turn
+        static float filteredTargetAngle = 0;
+        
+        filteredTargetAngle = (alpha * targetAngle) + ((1.0 - alpha) * filteredTargetAngle);
+        pidCorrection(filteredTargetAngle, angleZ, currentSpeed);
+        pidLinePreviousTime = now;
+      }
     } else {
       if (!obstacleDetected) {
         stop(); 
