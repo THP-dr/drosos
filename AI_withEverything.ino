@@ -78,7 +78,7 @@ const byte FLAME_SENSOR_PIN = 3; //mcp
 //Ultrasonic
 const byte TRIGGER_PIN = D11;
 const byte ECHO_PIN = D12;
-const int OBSTACLE_THRESHOLD_CM = 3; 
+const float OBSTACLE_THRESHOLD_CM = 5.0f; 
 /* IR line sensor pins */
 const byte IR_Right = 2; //mcp
 const byte IR_Left = 1; //mcp
@@ -112,6 +112,8 @@ bool busDelay = false;
 bool speedLimit = false;
 
 byte currentSpeed = 225;
+byte rightMotorSpeed = 0;
+byte leftMotorSpeed = 0;
 float targetAngle = 0.0;
 
 //Leds
@@ -205,11 +207,11 @@ void pidCorrection(float targetAngle, float currentAngle, byte baseSpeed) {
   }
 
   // Calculate motor speeds with PID output
-  byte rightMotor = constrain(baseSpeed + pidOutput, 0, 255);
-  byte leftMotor  = constrain(baseSpeed - pidOutput, 0, 255);
+  rightMotorSpeed = constrain(baseSpeed + pidOutput, 0, 255);
+  leftMotorSpeed  = constrain(baseSpeed - pidOutput, 0, 255);
 
-  analogWrite(PWM2_PIN, rightMotor);
-  analogWrite(PWM1_PIN, leftMotor);
+  analogWrite(PWM2_PIN, rightMotorSpeed);
+  analogWrite(PWM1_PIN, leftMotorSpeed);
 }
 
 void gyroBegin() {
@@ -432,10 +434,15 @@ void automaticMode() {
 }
 
 void checkRedLeds() {
-  if (now - previousTimeRED >= BLINK_PERIOD && shouldRedLedsBlink) {
-    previousRedLedState = !previousRedLedState;
-    digitalWrite(RED_LED_PIN, previousRedLedState);
-    previousTimeRED = now;
+  if (shouldRedLedsBlink) {
+    if (now - previousTimeRED >= BLINK_PERIOD) {
+      previousRedLedState = !previousRedLedState;
+      digitalWrite(RED_LED_PIN, previousRedLedState);
+      previousTimeRED = now;
+    }
+  } else {
+    digitalWrite(RED_LED_PIN, LOW);
+    previousRedLedState = LOW; 
   }
 }
 
@@ -444,7 +451,7 @@ void checkWhiteLeds() {
     previousWhiteLedState = !previousWhiteLedState;
     digitalWrite(WHITE_LED_PIN, previousWhiteLedState);
     previousTimeWHITE = now;
-  }
+  } 
 }
 
 void checkLeftOrangeLed() {
@@ -452,7 +459,7 @@ void checkLeftOrangeLed() {
     previousLeftOrangeLedState = !previousLeftOrangeLedState;
     Mcp.digitalWrite(ORANGE_LED_PIN1, previousLeftOrangeLedState);
     previousTimeLeftORANGE = now;
-  }
+  } 
 }
 
 void checkRightOrangeLed() {
@@ -462,66 +469,18 @@ void checkRightOrangeLed() {
     previousTimeRightORANGE = now;
   }
 }
-
-void updateLEDsAutoMode() {
-  int dir1_state = Mcp.digitalRead(DIR1_PIN);
-  int dir2_state = digitalRead(DIR2_PIN);
-  int pwm1_speed = analogRead(PWM1_PIN);
-  int pwm2_speed = analogRead(PWM2_PIN);
-
-  shouldRedLedsBlink = false;
-  digitalWrite(RED_LED_PIN, LOW);
-  shouldWhiteLedsBlink = false;
-  digitalWrite(WHITE_LED_PIN, LOW);
-  shouldLeftOrangeLedBlink = false;
-  Mcp.digitalWrite(ORANGE_LED_PIN1, LOW);
-  shouldRightOrangeLedBlink = false;
-  Mcp.digitalWrite(ORANGE_LED_PIN2, LOW);
-
-  if (pwm1_speed == 0 && pwm2_speed == 0) {
-    shouldRedLedsBlink = true;
-    digitalWrite(RED_LED_PIN, HIGH);
-  } else if (dir1_state == HIGH && dir2_state == HIGH) {
-    shouldWhiteLedsBlink = true;
-    digitalWrite(WHITE_LED_PIN, HIGH);
-  } else if (dir1_state == LOW && dir2_state == LOW) {
-      if (pwm1_speed > pwm2_speed + 30) { 
-      shouldRightOrangeLedBlink = true;
-      Mcp.digitalWrite(ORANGE_LED_PIN2, HIGH);
-    } else if (pwm2_speed > pwm1_speed + 30) { 
-      shouldLeftOrangeLedBlink = true;
-      Mcp.digitalWrite(ORANGE_LED_PIN1, HIGH);
-    }
-    }
-
-  }
   
-  
+void handleObstacle() {
+  if (ultrasonicDistance <= OBSTACLE_THRESHOLD_CM && !manualMode) {
+    obstacleDetected = true;
 
   
-  void handleObstacle() {
-  if (ultrasonicDistance <= OBSTACLE_THRESHOLD_CM) {
-    if (!obstacleDetected) {
-      wasInAutoMode = !manualMode;
-      obstacleDetected = true;
-      backward(180); 
-
-    }
+      //backward(180); 
+    
   } else {
-    if (obstacleDetected) {
-      obstacleDetected = false;
-      
-      if (wasInAutoMode) {
-        automaticMode();       
-        Mcp.digitalWrite(DIR1_PIN, LOW);
-        digitalWrite(DIR2_PIN, LOW);
-        analogWrite(PWM1_PIN, currentSpeed);
-        analogWrite(PWM2_PIN, currentSpeed);
-      } else {
-        stop(); 
-        
-      }
-    }
+
+    obstacleDetected = false;
+
   }
 }
 
@@ -724,7 +683,7 @@ void inferenceTask(void *pvParameters) {
         EI_IMPULSE_ERROR res = run_classifier(&signal, &result, false);
 
         if (res == EI_IMPULSE_OK) {
-          Serial.printf("Inference done (%d ms).\n", result.timing.classification);
+          //Serial.printf("Inference done (%d ms).\n", result.timing.classification);
           
           bool foundObject = false;
           // Iterate through all bounding boxes 
@@ -732,8 +691,8 @@ void inferenceTask(void *pvParameters) {
             auto bb = result.bounding_boxes[ix];
             // Check if the bounding box is valid and meets the confidence threshold
             if (bb.value > 0.2f) { 
-              Serial.printf("  DETECTED: %s (Conf: %.3f) [ x: %u, y: %u, w: %u, h: %u ]\n", 
-                                  bb.label, bb.value, bb.x, bb.y, bb.width, bb.height);
+              //Serial.printf("  DETECTED: %s (Conf: %.3f) [ x: %u, y: %u, w: %u, h: %u ]\n", 
+              //                    bb.label, bb.value, bb.x, bb.y, bb.width, bb.height);
               previousLabelX = bb.x;
               previousLabelY = bb.y;
               previousLabel = String(bb.label);
@@ -745,14 +704,14 @@ void inferenceTask(void *pvParameters) {
             }
           }
           if (!foundObject) {
-            Serial.println("  No objects detected above threshold.");  
+            //erial.println("  No objects detected above threshold.");  
             previousLabelX = -1; 
             previousLabelY = -1;
             previousLabel = "Searching..."; 
           }
         } else {
             // Log errors from the classifier
-            Serial.printf("run_classifier failed with error: %d\n", res);
+            //Serial.printf("run_classifier failed with error: %d\n", res);
             previousLabelX = -1; 
             previousLabelY = -1;
             previousLabel = "Error"; 
@@ -995,10 +954,12 @@ void loop() {
     }
   }
   
+
   checkRedLeds();
   checkWhiteLeds();
   checkLeftOrangeLed();
   checkRightOrangeLed();
+
 
   while (GpsSerial.available() > 0) {
     if (Gps.encode(GpsSerial.read())) {
@@ -1022,8 +983,11 @@ void loop() {
   
   readGyro();
   handleObstacle();
+  
 
   if (!manualMode) { 
+    bool isBackwards = false;
+
     if (shouldBeMoving && !obstacleDetected) {
       byte rightLineReading = Mcp.digitalRead(IR_Right);
       byte leftLineReading = Mcp.digitalRead(IR_Left);
@@ -1037,22 +1001,81 @@ void loop() {
       } else if (rightLineReading == LOW && leftLineReading == LOW) {
         targetAngle -= 10.0;
       }  
+      
+      
+      Mcp.digitalWrite(DIR1_PIN, LOW);
+      digitalWrite(DIR2_PIN, LOW);
+      isBackwards = false;
+
       float dtLine = (now - pidLinePreviousTime) / 1000.0;
-      if (dtLine >= 0.01) { //run every 10ms   
+      if (dtLine >= 0.01) {    
         float alpha = 0.2; //takes 20% of the new angle and adds it to the 80% of the previous angle to smoothly turn
         static float filteredTargetAngle = 0;
         
         filteredTargetAngle = (alpha * targetAngle) + ((1.0 - alpha) * filteredTargetAngle);
         pidCorrection(filteredTargetAngle, angleZ, currentSpeed);
         pidLinePreviousTime = now;
+      
+      
+        Serial.println(filteredTargetAngle);
       }
-    } else {
-      if (!obstacleDetected) {
-        stop(); 
-      }
+    } else if (obstacleDetected) {
+      Mcp.digitalWrite(DIR1_PIN, HIGH);
+      digitalWrite(DIR2_PIN, HIGH);
+      isBackwards = true;
+      analogWrite(PWM1_PIN, 200);
+      analogWrite(PWM2_PIN, 200);
+      leftMotorSpeed = 200;
+      rightMotorSpeed = 200;
+    } 
+    else {
+      stop();   
+      leftMotorSpeed = 0;
+      rightMotorSpeed = 0;
     }
-    updateLEDsAutoMode();
+  
+    Serial.println((String)leftMotorSpeed + " ||  " + rightMotorSpeed);
+    if (leftMotorSpeed == 0 && rightMotorSpeed == 0) {
+      shouldRedLedsBlink = true;
+      shouldWhiteLedsBlink = false;
+      shouldLeftOrangeLedBlink = false;
+      shouldRightOrangeLedBlink = false;
+    } 
+    else if (isBackwards) { 
+      shouldRedLedsBlink = false;
+      shouldWhiteLedsBlink = true;
+      shouldLeftOrangeLedBlink = false;
+      shouldRightOrangeLedBlink = false;
+    }
+    else if (leftMotorSpeed > rightMotorSpeed + 80) {
+      shouldRedLedsBlink = false;
+      shouldWhiteLedsBlink = false;
+      shouldLeftOrangeLedBlink = false;
+      shouldRightOrangeLedBlink = true;
+      Mcp.digitalWrite(ORANGE_LED_PIN1, LOW);
+    } 
+    else if (leftMotorSpeed < rightMotorSpeed - 80) {
+      shouldRedLedsBlink = false;
+      shouldWhiteLedsBlink = false;
+      shouldLeftOrangeLedBlink = true;
+      shouldRightOrangeLedBlink = false;
+      Mcp.digitalWrite(ORANGE_LED_PIN2, LOW);
+    } 
+    else {
+      //default
+      shouldRedLedsBlink = false;
+      shouldWhiteLedsBlink = false;
+      shouldLeftOrangeLedBlink = false;
+      shouldRightOrangeLedBlink = false;
+      digitalWrite(RED_LED_PIN, LOW);
+      digitalWrite(WHITE_LED_PIN, LOW);
+      Mcp.digitalWrite(ORANGE_LED_PIN1, LOW);
+      Mcp.digitalWrite(ORANGE_LED_PIN2, LOW);
+    }
+
   }
+
+  
 
   if (Mcp.digitalRead(FLAME_SENSOR_PIN)) {
     flame = true;
@@ -1087,17 +1110,12 @@ void loop() {
   }
 
   if (ultrasonicDistance < 10.0f) {
-    if (!obstacleDetected){
       shouldBeMoving = false;
-    }    
   } else if (ultrasonicDistance < 500.0f) {
-    if (!obstacleDetected) {
       shouldBeMoving = true;
-    }
-    
   }
 
-  Serial.println((String)"Ultrasonic:" + ultrasonicDistance);
+  //Serial.println((String)"Ultrasonic:" + ultrasonicDistance);
 
   delay(1);
 }
