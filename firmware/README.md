@@ -16,11 +16,10 @@ All sketches target the **DFRobot FireBeetle 2 ESP32-S3 with Camera (N16R8)**. E
 - Board package: DFRobot FireBeetle 2 ESP32-S3 (the sketches use its `D2`, `D3`, `D6`, `D7`, `D11`, `D12`, `A4` pin aliases)
 - **PSRAM enabled** (the camera frame buffer and the model's tensor arena are allocated there)
 - Copy `libraries/a0912_inferencing` into your Arduino `libraries` folder (`Documents/Arduino/libraries` on Windows)
-- Libraries for `SchoolBus`: DFRobot_AXP313A, TinyGPSPlus, Adafruit MCP23017, LiquidCrystal_I2C, IRremote (v3+ API, `IrReceiver`)
-- Extra libraries for `TelemetryLink`: WebSockets (Markus Sattler, `WebSocketsServer.h`), ArduinoJson
+- Libraries for `SchoolBus`: DFRobot_AXP313A, TinyGPSPlus@1.0.3, Adafruit MCP23017@2.3.2, LiquidCrystal_I2C@2.0.0, IRremote@4.5.0 
+- Extra libraries for `TelemetryLink`: WebSockets@2.7.2 (Markus Sattler, `WebSocketsServer.h`), ArduinoJson@7.4.3
 - `esp_camera`, `WebServer`, `WiFiMulti`, `ESPmDNS` come with the ESP32 core
 
-When you have a build that works, write the exact library versions here so the result can be reproduced.
 
 ## Wi-Fi credentials
 

@@ -1,10 +1,12 @@
 # SafeRoute: Autonomous School-Bus Model (ESP32-S3)
+[![Compile firmware](https://github.com/TeaTimeIroh/AutomatedChessboard/actions/workflows/compile.yml/badge.svg)](https://github.com/TeaTimeIroh/AutomatedChessboard/actions/workflows/compile.yml)
+![MCU](https://img.shields.io/badge/MCU-ESP32--S3-red) 
+![ML](https://img.shields.io/badge/ML-Edge%20Impulse%20FOMO%20INT8-orange) 
+![App](https://img.shields.io/badge/App-Qt%206%20%2F%20QML-41cd52)
 
 A 4WD model school bus that **follows a taped track with two IR sensors and a gyro-based PID, stops for obstacles, and recognises STOP / NO ENTRY signs with a neural network running on the microcontroller**, plus a Qt desktop app (*SafeRoute*) that shows parents and the school the bus position, live camera and safety alerts.
 
 Team project, University of West Attica (UNIWA), 2026.
-
-![MCU](https://img.shields.io/badge/MCU-ESP32--S3-red) ![ML](https://img.shields.io/badge/ML-Edge%20Impulse%20FOMO%20INT8-orange) ![App](https://img.shields.io/badge/App-Qt%206%20%2F%20QML-41cd52)
 
 <p align="center"><img src="docs/images/car_top-view.jpg" width="48%"> <img src="docs/images/car_front-ir-line-sensors.jpg" width="48%"></p>
 
