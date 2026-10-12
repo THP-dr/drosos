@@ -26,4 +26,3 @@ The goal was documentation generated from the code rather than drawn by hand:
 2. Paste the PlantUML into the [PlantUML editor](https://editor.plantuml.com/) and save the rendered image.
 3. If the diagram is wrong, give the PlantUML back to the assistant and iterate.
 
-The diagrams describe the code as it was in February 2026; check them against the sketch if you change it.

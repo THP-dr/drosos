@@ -54,5 +54,3 @@ then edit `secrets.h`. It is ignored by git. The sketches in `experiments/` and 
 | `v2_WebServer` | 2026-01-21 | `SchoolBus_withWebServer_withComments` | Adds the MJPEG web stream, WebSocket telemetry and the accelerometer |
 | `v3_AiWebServer` | 2026-01-31 | `AI_withWebServer.ino` | First on-device inference with the Edge Impulse model and the raw-frame web page |
 | `v4_AutoIrTelemetry` | 2026-02-05 | `auto_ir.ino` | Automatic mode with IR sensors and full app telemetry, before the AI model was merged in |
-
-Removed as duplicates (still in the git history and under the `pre-cleanup` tag): `SchoolBus_withWebServer.ino` (same code as v2 without comments), `AI_withEverything.ino` and `AI_withEverything_PLUS_COMMENTS` (the final firmware without the comments / third Wi-Fi network).
