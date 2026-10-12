@@ -24,7 +24,7 @@ jobs:
       - uses: arduino/compile-sketches@v1
         with:
           # Same settings as Tools menu in the Arduino IDE (board: DFRobot Firebeetle 2 ESP32-S3).
-          fqbn: fqbn: esp32:esp32:dfrobot_firebeetle2_esp32s3:FlashSize=16M,PSRAM=opi,PartitionScheme=default
+          fqbn: esp32:esp32:dfrobot_firebeetle2_esp32s3:FlashSize=16M,PSRAM=opi,PartitionScheme=default
           platforms: |
             - name: esp32:esp32
               version: 3.3.7         
@@ -36,7 +36,7 @@ jobs:
               version: 1.0.0
             - name: TinyGPSPlus
               version: 1.0.3
-            - name: Adafruit_MCP23017_Arduino_Library
+            - name: Adafruit MCP23017 Arduino Library
               version: 2.3.2
             - name: LiquidCrystal_I2C
               version: 2.0.0
@@ -45,7 +45,7 @@ jobs:
             - name: WebSockets
               version: 2.7.2
             - name: ArduinoJson
-              version: 0.2.0
+              version: 7.4.3
           sketch-paths: |
             - firmware/SchoolBus
             - firmware/TelemetryLink
