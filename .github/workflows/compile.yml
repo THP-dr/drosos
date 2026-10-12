@@ -1,0 +1,50 @@
+# Compiles the car firmware on every push / pull request so a broken sketch is caught automatically.
+name: Compile firmware
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # secrets.h is gitignored, so a fresh checkout does not have it.
+      # Copy the placeholder version so the sketches can compile.
+      - name: Create secrets.h from the example files
+        run: |
+          for d in firmware/SchoolBus firmware/TelemetryLink; do
+            cp "$d/secrets.example.h" "$d/secrets.h"
+          done
+
+      - uses: arduino/compile-sketches@v1
+        with:
+          # Same settings as Tools menu in the Arduino IDE (board: DFRobot Firebeetle 2 ESP32-S3).
+          fqbn: esp32:esp32:dfrobot_firebeetle2_esp32s3:FlashSize=16M,PSRAM=opi,PartitionScheme=default
+          platforms: |
+            - name: esp32:esp32
+              version: 3.3.7         
+              source-url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          libraries: |
+            # Edge Impulse export (with the PSRAM patch) lives in the repo itself
+            - source-path: firmware/libraries/a0912_inferencing
+            - source-path: firmware/libraries/DFRobot_AXP313A
+            - name: TinyGPSPlus
+              version: 1.0.3
+            - name: Adafruit MCP23017 Arduino Library
+              version: 2.3.2
+            - name: LiquidCrystal_I2C
+              version: 2.0.0
+            - name: IRremote
+              version: 4.5.0
+            - name: WebSockets
+              version: 2.7.2
+            - name: ArduinoJson
+              version: 7.4.3
+          sketch-paths: |
+            - firmware/SchoolBus
+            - firmware/TelemetryLink
