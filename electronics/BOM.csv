@@ -1,0 +1,36 @@
+Category,Item,Model / value,Qty,Role,Notes
+Processing,Microcontroller with camera,DFRobot FireBeetle 2 ESP32-S3 with Camera (N16R8: 16 MB flash / 8 MB PSRAM),1,Main controller,On-board AXP313A PMIC powers the camera
+Sensors,Camera,OV2640,1,Sign detection (96x96 grayscale),Connects to the board's dedicated camera connector
+Sensors,Ultrasonic sensor,HC-SR04,1,Obstacle distance,5 V part; ECHO goes through the level shifter
+Sensors,IMU,MPU6050,1,Yaw (gyro Z) for the PID and pick-up detection (accel Z),I2C 0x68
+Sensors,IR line sensor,Reflective IR obstacle/line module,2,Track-line following,Report parts table lists 1; firmware and photos use 2 (left + right)
+Sensors,GPS module,NEO-6M V2,1,Position for telemetry,UART0 at 9600 baud
+Sensors,Smoke sensor,Fermion MEMS smoke gas sensor,1,Safety alert,Read through the MCP23017
+Sensors,Flame sensor,IR flame sensor,1,Safety alert,In the schematic and firmware; missing from the report parts table
+Sensors,Vibration sensor,Gravity analog piezo disk vibration sensor (DFR0052),1,Impact detection,Analog input A4
+Sensors,IR receiver,38 kHz IR receiver,1,Remote control input,Pin D2
+Motion,DC gear motor,TT motor 130 RPM 1:48 3-6 V,4,Wheel drive,Two in parallel per side
+Motion,Wheels,Rubber 66x26 mm,4,Wheels,
+Motion,Motor driver,Fermion TB6612FNG 2x1.2 A,1,Differential (skid) steering,Channel A = left pair / Channel B = right pair
+Power,Li-Po battery,600 mAh,1,Powers MCU and camera,Separate from the motor supply
+Power,Battery holder,4 x AA (6 V),1,Motor supply,
+Power,Step-down converter,5 V buck,1,5 V rail for sensors,
+Power,Fuse holder + fuse,6 A holder / 3 A fuse,1,Motor circuit protection,
+Power,Capacitor,1000 uF electrolytic,1,Motor supply decoupling,
+Power,Switch,Push-button ON/OFF,1,Main switch,
+Indication,Active buzzer,5 V active buzzer,1,Audio signals,Driven by a 2N2222 via the MCP23017; calls are commented out in the final firmware
+Indication,LED orange,5 mm diffused,2,Turn indicators / alarm,
+Indication,LED red,5 mm diffused,2,Stop lights,
+Indication,LED white,5 mm diffused,2,Reverse lights,
+Indication,LCD,16x2 character LCD white on blue 5 V + I2C backpack,1,Status messages,I2C 0x27
+Misc,I/O expander,MCP23017 16-bit,1,Extra GPIO for LEDs / buzzer / sensors / motor DIR1,I2C 0x20
+Misc,Level shifter,4-channel bidirectional,1,5 V <-> 3.3 V for HC-SR04 and LCD,
+Misc,Transistors,2N2222 NPN,2,Switch LED groups,
+Misc,Resistors,"47, 68, 150, 220, 1k, 4.7k, 10k Ohm",10+,LED current limiting / transistor bases,
+Misc,Breadboards,830 + 170 tie points,2,Wiring,
+Misc,Jumper wires,M-M / M-F,1 set,Wiring,
+Misc,IR remote,NEC-style IR remote,1,Start / mode / steering,
+Misc,Chassis,Custom 3D-printed PLA (designed in Blender),1,Frame and sensor mounts,
+Misc,HC-SR04 bracket,Acrylic mount,1,Ultrasonic mount,
+Misc,Screws / nuts,M3 assorted,1 set,Assembly,
+Misc,Screw terminal,2-pin 3.5 mm,1,Battery leads,

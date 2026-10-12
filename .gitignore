@@ -1,0 +1,23 @@
+# Wi-Fi credentials (copy firmware/<Sketch>/secrets.example.h to secrets.h)
+secrets.h
+
+# Arduino / PlatformIO build output
+build/
+.pio/
+
+# Qt Creator / Qt Design Studio per-user files and build folders
+*.user
+*.user.*
+*.qtds.*
+build-*/
+app/**/build/
+
+# Edge Impulse exports: the unpacked, patched library lives in firmware/libraries/
+ei-*-arduino-*.zip
+*_inferencing*.zip
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
