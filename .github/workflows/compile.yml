@@ -32,8 +32,7 @@ jobs:
           libraries: |
             # Edge Impulse export (with the PSRAM patch) lives in the repo itself
             - source-path: firmware/libraries/a0912_inferencing
-            - name: DFRobot_AXP313A
-              version: 1.0.0
+            - source-path: firmware/libraries/DFRobot_AXP313A
             - name: TinyGPSPlus
               version: 1.0.3
             - name: Adafruit MCP23017 Arduino Library
