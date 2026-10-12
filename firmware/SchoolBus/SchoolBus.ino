@@ -26,6 +26,7 @@
 * Date: Jan 2026
 **********/
 #include "DFRobot_AXP313A.h"
+#include "secrets.h"  // Wi-Fi networks: copy secrets.example.h to secrets.h
 #include "esp_camera.h"
 #include <WebServer.h>        // Standard WebServer library
 #include <esp32-hal-i2c.h>    // Low-level I2C to override the camera library
@@ -1274,9 +1275,7 @@ void setup() {
   s->set_dcw(s, 1);            // 0 = disable , 1 = enable
   s->set_colorbar(s, 0);       // 0 = disable , 1 = enable
 
-  WifiMulti.addAP("COSMOTE-536092-2.4GHz", "vlhelen2003");
-  WifiMulti.addAP("PasadesOnly", "AnythingGoes");
-  WifiMulti.addAP("realme C33", "ibanezfender"); 
+  for (const WifiNetwork& net : WIFI_NETWORKS) WifiMulti.addAP(net.ssid, net.password);  // networks: secrets.h
   
   while (WifiMulti.run() != WL_CONNECTED) { 
     delay(500); 

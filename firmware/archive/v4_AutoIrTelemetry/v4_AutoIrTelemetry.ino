@@ -930,9 +930,9 @@ Mcp.pinMode(IR_Left, INPUT);
 Mcp.pinMode(FLAME_SENSOR_PIN, INPUT);
 Mcp.pinMode(SMOKE_PIN, INPUT);
 Mcp.pinMode(BUZZER_PIN, OUTPUT);
-WifiMulti.addAP("COSMOTE-536092-2.4GHz", "vlhelen2003");
-WifiMulti.addAP("PasadesOnly", "AnythingGoes");  // Fallback network
-WifiMulti.addAP("realme C33", "ibanezfender");  // Another fallback
+WifiMulti.addAP("YOUR_SSID", "YOUR_PASSWORD");
+WifiMulti.addAP("YOUR_SSID", "YOUR_PASSWORD");  // Fallback network
+WifiMulti.addAP("YOUR_SSID", "YOUR_PASSWORD");  // Another fallback
 Serial.println("Connecting to WiFi...");
 while (WifiMulti.run() != WL_CONNECTED) {
 delay(500);

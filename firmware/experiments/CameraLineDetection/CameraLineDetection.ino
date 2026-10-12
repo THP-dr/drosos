@@ -26,8 +26,8 @@
 #define CAM_PIN_HREF    42
 #define CAM_PIN_PCLK    5
 
-const char* ssid = "COSMOTE-536092-2.4GHz";  // Change to your WiFi Network name
-const char* password = "vlhelen2003";  // Change to your password
+const char* ssid = "YOUR_SSID";  // Change to your WiFi Network name
+const char* password = "YOUR_PASSWORD";  // Change to your password
 
 const int LCD_I2C_ADRESS =  0x27;
 unsigned long now = millis();

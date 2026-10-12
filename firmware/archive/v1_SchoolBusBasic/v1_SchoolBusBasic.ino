@@ -540,11 +540,11 @@ void handle_IR_communication() {
 
 // Add multiple networks with their passwords
 void setupWiFiNetworks() {
-  wifiMulti.addAP("COSMOTE-536092-2.4GHz", "vlhelen2003");  // Primary network
-  wifiMulti.addAP("PasadesOnly", "AnythingGoes");  // Fallback network
-  wifiMulti.addAP("realme C33", "ibanezfender");  // Another fallback
+  wifiMulti.addAP("YOUR_SSID", "YOUR_PASSWORD");  // Primary network
+  wifiMulti.addAP("YOUR_SSID", "YOUR_PASSWORD");  // Fallback network
+  wifiMulti.addAP("YOUR_SSID", "YOUR_PASSWORD");  // Another fallback
   // Add many networks
-  // wifiMulti.addAP("Another Network", "Another Password");
+  // wifiMulti.addAP("YOUR_SSID", "YOUR_PASSWORD");
 }
 
 void setup() {

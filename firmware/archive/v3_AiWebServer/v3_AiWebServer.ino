@@ -260,8 +260,8 @@ void setup() {
   s->set_dcw(s, 1);            // 0 = disable , 1 = enable
   s->set_colorbar(s, 0);       // 0 = disable , 1 = enable
 
-  WifiMulti.addAP("COSMOTE-536092-2.4GHz", "vlhelen2003");
-  WifiMulti.addAP("PasadesOnly", "AnythingGoes");
+  WifiMulti.addAP("YOUR_SSID", "YOUR_PASSWORD");
+  WifiMulti.addAP("YOUR_SSID", "YOUR_PASSWORD");
 
   while (WifiMulti.run() != WL_CONNECTED) { 
     delay(500); 

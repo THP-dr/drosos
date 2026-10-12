@@ -1,4 +1,5 @@
 #include "esp_camera.h"
+#include "secrets.h"  // Wi-Fi networks: copy secrets.example.h to secrets.h
 #include "DFRobot_AXP313A.h"  // Include AXP313A library 
 #include <esp32-hal-i2c.h>    // Low-level I2C to override the camera library
 #include <WiFiMulti.h>
@@ -119,7 +120,7 @@ void broadcastData() {
 void setup() {
   Serial.begin(115200);
 
-  WifiMulti.addAP("COSMOTE-536092-2.4GHz", "vlhelen2003");
+  for (const WifiNetwork& net : WIFI_NETWORKS) WifiMulti.addAP(net.ssid, net.password);  // networks: secrets.h
 
   Serial.println("Connecting to WiFi...");
   while (WifiMulti.run() != WL_CONNECTED) {
